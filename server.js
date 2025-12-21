@@ -20,7 +20,8 @@ app.use(express.static('public'));
 //   maxUsers,
 //   users: { socketId: { username, joinedAt } },
 //   messages: [ { username, text, ts } ],
-//   isGlobal: boolean
+//   isGlobal: boolean,
+//   safe: boolean
 // }
 const rooms = {};
 
@@ -33,18 +34,28 @@ rooms[GLOBAL_CODE] = {
   maxUsers: Infinity,
   users: {},
   messages: [],
-  isGlobal: true
+  isGlobal: true,
+  safe: false
 };
 
 function sanitizeText(text) {
-  // Basic sanitization: escape <, >, &, ", '
   if (!text) return '';
-  return text
+  return String(text)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function buildUserList(room) {
+  const users = Object.entries(room.users).map(([sid, u]) => ({
+    username: u.username,
+    socketId: sid,
+    joinedAt: u.joinedAt
+  }));
+  const ownerUsername = room.ownerId && room.users[room.ownerId] ? room.users[room.ownerId].username : null;
+  return { users, ownerId: room.ownerId, ownerUsername };
 }
 
 io.on('connection', (socket) => {
@@ -55,12 +66,13 @@ io.on('connection', (socket) => {
   // Create a room
   socket.on('createRoom', async (payload, cb) => {
     try {
-      const { username, code, password, maxUsers } = payload || {};
+      const { username, code, password, maxUsers, safe } = payload || {};
       if (!username || !code) return cb && cb({ ok: false, message: 'Username and code required.' });
       const key = String(code).trim();
       if (rooms[key]) return cb && cb({ ok: false, message: 'Room code already exists.' });
-      const parsedMax = parseInt(maxUsers) || 10;
-      const finalMax = Math.max(2, Math.min(parsedMax, 200));
+
+      const parsedMax = parseInt(maxUsers);
+      const finalMax = Number.isInteger(parsedMax) ? Math.max(2, Math.min(parsedMax, 200)) : 10;
       const saltRounds = 10;
       const passwordHash = password ? await bcrypt.hash(String(password), saltRounds) : null;
 
@@ -71,17 +83,20 @@ io.on('connection', (socket) => {
         maxUsers: finalMax,
         users: {},
         messages: [],
-        isGlobal: false
+        isGlobal: false,
+        safe: safe === undefined ? true : !!safe
       };
 
       // Add creator to room
-      rooms[key].users[socket.id] = { username: sanitizeText(username), joinedAt: Date.now() };
+      const safeName = sanitizeText(username);
+      rooms[key].users[socket.id] = { username: safeName, joinedAt: Date.now() };
       socket.join(key);
       socket.data.currentRoom = key;
-      socket.data.username = sanitizeText(username);
+      socket.data.username = safeName;
 
-      cb && cb({ ok: true, room: { code: key, maxUsers: finalMax }, messages: rooms[key].messages, users: Object.values(rooms[key].users) });
-      io.to(key).emit('userList', { users: Object.values(rooms[key].users), ownerId: rooms[key].ownerId });
+      const userList = buildUserList(rooms[key]);
+      cb && cb({ ok: true, room: { code: key, maxUsers: finalMax, isGlobal: false, safe: rooms[key].safe }, messages: rooms[key].messages, users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+      io.to(key).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
     } catch (err) {
       console.error(err);
       cb && cb({ ok: false, message: 'Server error' });
@@ -96,6 +111,12 @@ io.on('connection', (socket) => {
       const key = String(code).trim();
       const room = rooms[key];
       if (!room) return cb && cb({ ok: false, message: 'Room not found.' });
+
+      // username uniqueness (case-insensitive)
+      const unameLower = String(username).trim().toLowerCase();
+      const nameTaken = Object.values(room.users).some(u => (u.username || '').toLowerCase() === unameLower);
+      if (nameTaken) return cb && cb({ ok: false, message: 'Username already taken in this room.' });
+
       if (!room.isGlobal && room.passwordHash) {
         const ok = await bcrypt.compare(String(password || ''), room.passwordHash);
         if (!ok) return cb && cb({ ok: false, message: 'Incorrect password.' });
@@ -103,14 +124,16 @@ io.on('connection', (socket) => {
       const userCount = Object.keys(room.users).length;
       if (userCount >= room.maxUsers) return cb && cb({ ok: false, message: 'Room is full.' });
 
-      room.users[socket.id] = { username: sanitizeText(username), joinedAt: Date.now() };
+      const safeName = sanitizeText(username);
+      room.users[socket.id] = { username: safeName, joinedAt: Date.now() };
       socket.join(key);
       socket.data.currentRoom = key;
-      socket.data.username = sanitizeText(username);
+      socket.data.username = safeName;
 
-      cb && cb({ ok: true, room: { code: key, maxUsers: room.maxUsers, isGlobal: room.isGlobal }, messages: room.messages, users: Object.values(room.users), ownerId: room.ownerId });
-      io.to(key).emit('userList', { users: Object.values(room.users), ownerId: room.ownerId });
-      io.to(key).emit('systemMessage', { text: `${sanitizeText(username)} joined the room.` });
+      const userList = buildUserList(room);
+      cb && cb({ ok: true, room: { code: key, maxUsers: room.maxUsers, isGlobal: room.isGlobal, safe: room.safe }, messages: room.messages, users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+      io.to(key).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+      io.to(key).emit('systemMessage', { text: `${safeName} joined the room.` });
     } catch (err) {
       console.error(err);
       cb && cb({ ok: false, message: 'Server error' });
@@ -122,13 +145,20 @@ io.on('connection', (socket) => {
     const { username } = payload || {};
     if (!username) return cb && cb({ ok: false, message: 'Username required.' });
     const room = rooms[GLOBAL_CODE];
-    room.users[socket.id] = { username: sanitizeText(username), joinedAt: Date.now() };
+
+    const unameLower = String(username).trim().toLowerCase();
+    const nameTaken = Object.values(room.users).some(u => (u.username || '').toLowerCase() === unameLower);
+    if (nameTaken) return cb && cb({ ok: false, message: 'Username already taken in global chat.' });
+
+    const safeName = sanitizeText(username);
+    room.users[socket.id] = { username: safeName, joinedAt: Date.now() };
     socket.join(GLOBAL_CODE);
     socket.data.currentRoom = GLOBAL_CODE;
-    socket.data.username = sanitizeText(username);
-    cb && cb({ ok: true, room: { code: GLOBAL_CODE, isGlobal: true }, messages: room.messages, users: Object.values(room.users) });
-    io.to(GLOBAL_CODE).emit('userList', { users: Object.values(room.users), ownerId: room.ownerId });
-    io.to(GLOBAL_CODE).emit('systemMessage', { text: `${sanitizeText(username)} joined Global Chat.` });
+    socket.data.username = safeName;
+    const userList = buildUserList(room);
+    cb && cb({ ok: true, room: { code: GLOBAL_CODE, isGlobal: true, safe: room.safe }, messages: room.messages, users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+    io.to(GLOBAL_CODE).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+    io.to(GLOBAL_CODE).emit('systemMessage', { text: `${safeName} joined Global Chat.` });
   });
 
   // Send message
@@ -187,21 +217,26 @@ io.on('connection', (socket) => {
       const room = rooms[roomKey];
       if (!room || room.isGlobal) return;
 
-      // Delete the room and notify everyone
-      io.to(roomKey).emit('kicked', { reason: 'Room closed due to page refresh.' });
+      // Only delete room if it's a safe room
+      if (room.safe) {
+        io.to(roomKey).emit('kicked', { reason: 'Room closed due to page refresh (safe room).' });
 
-      // Remove users from room and close it
-      const socketsToLeave = Object.keys(room.users || {});
-      socketsToLeave.forEach(sid => {
-        const s = io.sockets.sockets.get(sid);
-        if (s) {
-          s.leave(roomKey);
-          s.data.currentRoom = null;
-        }
-      });
+        // Remove users from room and close it
+        const socketsToLeave = Object.keys(room.users || {});
+        socketsToLeave.forEach(sid => {
+          const s = io.sockets.sockets.get(sid);
+          if (s) {
+            s.leave(roomKey);
+            s.data.currentRoom = null;
+          }
+        });
 
-      delete rooms[roomKey];
-      console.log(`Room ${roomKey} deleted due to client refresh.`);
+        delete rooms[roomKey];
+        console.log(`Room ${roomKey} deleted due to client refresh (safe room).`);
+      } else {
+        // Not a safe room: do nothing special. The user's normal disconnect will remove them.
+        console.log(`Client refresh in non-safe room ${roomKey} — no room deletion.`);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -218,7 +253,8 @@ io.on('connection', (socket) => {
     delete room.users[socket.id];
     socket.leave(roomKey);
     socket.data.currentRoom = null;
-    io.to(roomKey).emit('userList', { users: Object.values(room.users), ownerId: room.ownerId });
+    const userList = buildUserList(room);
+    io.to(roomKey).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
   });
 
   socket.on('disconnect', () => {
@@ -228,8 +264,9 @@ io.on('connection', (socket) => {
       const room = rooms[roomKey];
       if (room) {
         delete room.users[socket.id];
-        io.to(roomKey).emit('userList', { users: Object.values(room.users), ownerId: room.ownerId });
-        // Do not delete room on disconnect; delete only on client-refresh event to implement "kick everyone" behavior.
+        const userList = buildUserList(room);
+        io.to(roomKey).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+        // Do not delete room on disconnect; delete only on client-refresh for safe rooms.
       }
     }
   });
