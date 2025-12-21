@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Divine Chat</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <section id="hero" class="hero">
+      <h1 class="title">Welcome to Divine Chat</h1>
+      <p class="subtitle">Private rooms & Global chat — dark theme, gold accents</p>
+
+      <div class="cta">
+        <button id="btnCreate" class="btn gold">Create Room</button>
+        <button id="btnJoin" class="btn purple">Join Room</button>
+        <button id="btnGlobal" class="btn blue">Global Chat</button>
+      </div>
+    </section>
+
+    <!-- Forms and Chat -->
+    <section id="pane" class="pane hidden">
+      <div class="topbar">
+        <div class="room-info">
+          <span id="roomCode" class="badge"></span>
+          <span id="roomType" class="muted"></span>
+        </div>
+        <div class="actions">
+          <button id="btnClear" class="btn small gold" title="Host only — Ctrl+Alt+C">Clear Chat</button>
+          <button id="btnLeave" class="btn small muted">Leave Room</button>
+        </div>
+      </div>
+
+      <div class="main-grid">
+        <aside class="sidebar">
+          <h3>Users</h3>
+          <ul id="userList" class="user-list"></ul>
+        </aside>
+
+        <section class="chat">
+          <div id="messages" class="messages"></div>
+          <form id="msgForm" class="msgForm">
+            <input id="msgInput" autocomplete="off" placeholder="Type a message..." maxlength="2000" />
+            <button class="btn gold">Send</button>
+          </form>
+        </section>
+      </div>
+    </section>
+
+    <!-- Create / Join Modals -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-card">
+        <button id="modalClose" class="modal-close">✕</button>
+
+        <div id="createForm" class="form hidden">
+          <h2>Create Room</h2>
+          <label>Username <input id="createUsername" /></label>
+          <label>Code <input id="createCode" /></label>
+          <label>Password (optional) <input id="createPassword" type="password" /></label>
+          <label>Max Users <input id="createMax" type="number" min="2" max="200" value="10" /></label>
+          <div class="modal-actions">
+            <button id="createSubmit" class="btn gold">Create</button>
+            <button id="createCancel" class="btn muted">Cancel</button>
+          </div>
+        </div>
+
+        <div id="joinForm" class="form hidden">
+          <h2>Join Room</h2>
+          <label>Username <input id="joinUsername" /></label>
+          <label>Code <input id="joinCode" /></label>
+          <label>Password (if required) <input id="joinPassword" type="password" /></label>
+          <div class="modal-actions">
+            <button id="joinSubmit" class="btn purple">Join</button>
+            <button id="joinCancel" class="btn muted">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/main.js"></script>
+</body>
+</html>
