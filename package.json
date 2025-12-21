@@ -1,0 +1,17 @@
+{
+  "name": "divine-chat",
+  "version": "1.0.0",
+  "description": "Simple private & global chat with ephemeral rooms (Divine Chat)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  }
+}
