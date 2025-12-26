@@ -27,6 +27,9 @@
   const btnLeave = document.getElementById('btnLeave');
   const toast = document.getElementById('toast');
 
+  const safeIndicator = document.getElementById('safeIndicator');
+  const typingEl = document.getElementById('typing');
+
   // Create inputs
   const createUsername = document.getElementById('createUsername');
   const createCode = document.getElementById('createCode');
@@ -49,6 +52,10 @@
   let myUsername = null;
   let ownerId = null;
   let ownerName = null;
+
+  // Typing state
+  let typingTimeout = null;
+  const typingUsers = new Map(); // socketId -> username
 
   // Settings persisted
   const SETTINGS_KEY = 'divine_chat_settings_v1';
@@ -83,10 +90,14 @@
     }
   }
 
-  function showToast(msg, duration = 2500) {
+  function showToast(msg, duration = 2500, type = 'info') {
     toast.textContent = msg;
     toast.classList.remove('hidden');
-    setTimeout(() => toast.classList.add('hidden'), duration);
+    toast.classList.toggle('error', type === 'error');
+    setTimeout(() => {
+      toast.classList.add('hidden');
+      toast.classList.remove('error');
+    }, duration);
   }
 
   function showModal(which) {
@@ -107,7 +118,7 @@
     const name = prompt('Enter a username for Global Chat:', 'Guest');
     if (!name) return;
     socket.emit('joinGlobal', { username: name }, (res) => {
-      if (!res || !res.ok) return showToast(res && res.message ? res.message : 'Failed to join global');
+      if (!res || !res.ok) return showToast(res && res.message ? res.message : 'Failed to join global', 3000, 'error');
       enterRoom(res.room, name, res.messages || [], res.users || [], res.ownerId, res.ownerUsername);
     });
   });
@@ -139,9 +150,9 @@
     const password = createPassword.value;
     const max = createMax.value;
     const safe = createSafe.checked;
-    if (!username || !code) return showToast('Username and Code required');
+    if (!username || !code) return showToast('Username and Code required', 2500, 'error');
     socket.emit('createRoom', { username, code, password, maxUsers: max, safe }, (res) => {
-      if (!res || !res.ok) return showToast(res && res.message ? res.message : 'Failed to create');
+      if (!res || !res.ok) return showToast(res && res.message ? res.message : 'Failed to create', 3000, 'error');
       enterRoom(res.room, username, res.messages || [], res.users || [], res.ownerId, res.ownerUsername);
       closeModal();
     });
@@ -151,9 +162,9 @@
     const username = joinUsername.value.trim();
     const code = joinCode.value.trim();
     const password = joinPassword.value;
-    if (!username || !code) return showToast('Username and Code required');
+    if (!username || !code) return showToast('Username and Code required', 2500, 'error');
     socket.emit('joinRoom', { username, code, password }, (res) => {
-      if (!res || !res.ok) return showToast(res && res.message ? res.message : 'Failed to join');
+      if (!res || !res.ok) return showToast(res && res.message ? res.message : 'Failed to join', 3000, 'error');
       enterRoom(res.room, username, res.messages || [], res.users || [], res.ownerId, res.ownerUsername);
       closeModal();
     });
@@ -169,6 +180,14 @@
     pane.classList.remove('hidden');
 
     chatTitle.textContent = room.isGlobal ? 'Global Chat' : 'Private Chat';
+    // safe indicator
+    if (room.safe) {
+      safeIndicator.textContent = 'Safe: ON';
+      safeIndicator.title = 'Safe room — refresh will close the room and kick everyone';
+    } else {
+      safeIndicator.textContent = 'Safe: OFF';
+      safeIndicator.title = 'Non-safe room — refresh will NOT kill the room';
+    }
 
     updateUserList(users, ownerId, ownerUsernameParam);
     messagesEl.innerHTML = '';
@@ -235,15 +254,39 @@
     leaveRoom(true, payload && payload.reason);
   });
 
+  // Typing indicator events from server
+  socket.on('typing', (payload) => {
+    if (!payload || !payload.socketId) return;
+    if (payload.typing) {
+      typingUsers.set(payload.socketId, payload.username);
+    } else {
+      typingUsers.delete(payload.socketId);
+    }
+    renderTyping();
+  });
+
+  function renderTyping() {
+    const names = Array.from(typingUsers.values()).filter(n => n && n !== myUsername);
+    if (names.length === 0) {
+      typingEl.classList.add('hidden');
+      typingEl.textContent = '';
+      return;
+    }
+    typingEl.classList.remove('hidden');
+    if (names.length === 1) typingEl.textContent = `${names[0]} is typing...`;
+    else typingEl.textContent = `${names.join(', ')} are typing...`;
+  }
+
   msgForm.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const text = msgInput.value.trim();
     if (!text) return;
     socket.emit('sendMessage', { text }, (res) => {
       if (!res || !res.ok) {
-        showToast(res && res.message ? res.message : 'Failed to send');
+        showToast(res && res.message ? res.message : 'Failed to send', 3000, 'error');
       } else {
         msgInput.value = '';
+        sendTyping(false); // stop typing when message sent
       }
     });
   });
@@ -284,11 +327,25 @@
       .replace(/\n/g, '<br/>');
   }
 
+  // Typing emission with debounce
+  function sendTyping(isTyping) {
+    socket.emit('typing', { typing: !!isTyping });
+  }
+  msgInput.addEventListener('input', () => {
+    // send typing true, then after 1200ms of inactivity send false
+    sendTyping(true);
+    if (typingTimeout) clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      sendTyping(false);
+      typingTimeout = null;
+    }, 1200);
+  });
+
   // Clear chat (host only)
   btnClear.addEventListener('click', () => {
-    if (!currentRoom || currentRoom === 'GLOBAL_CHAT_DIVINE') return showToast('Cannot clear global chat');
+    if (!currentRoom || currentRoom === 'GLOBAL_CHAT_DIVINE') return showToast('Cannot clear global chat', 2500, 'error');
     socket.emit('clearRoom', {}, (res) => {
-      if (!res || !res.ok) showToast(res && res.message ? res.message : 'Failed to clear');
+      if (!res || !res.ok) showToast(res && res.message ? res.message : 'Failed to clear', 3000, 'error');
     });
   });
 
@@ -304,8 +361,10 @@
     pane.classList.add('hidden');
     messagesEl.innerHTML = '';
     userListEl.innerHTML = '';
+    typingUsers.clear();
+    renderTyping();
     if (kicked) {
-      showToast(reason || 'Kicked from room');
+      showToast(reason || 'Kicked from room', 3000, 'error');
     }
   }
 
