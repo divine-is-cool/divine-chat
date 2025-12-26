@@ -4,7 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Divine Chat</title>
+
+  <!-- Styles -->
   <link rel="stylesheet" href="/css/styles.css" />
+
+  <!-- Marked (Markdown) and DOMPurify from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js"></script>
 </head>
 <body>
   <main class="container">
@@ -40,20 +46,34 @@
         </aside>
 
         <section class="chat">
-          <div id="messages" class="messages"></div>
+          <div id="messages" class="messages" aria-live="polite" role="log"></div>
           <div id="typing" class="typing small hidden"></div>
-          <form id="msgForm" class="msgForm">
-            <input id="msgInput" autocomplete="off" placeholder="Type a message..." maxlength="2000" />
-            <button class="btn send gold">Send</button>
+
+          <form id="msgForm" class="msgForm" autocomplete="off">
+            <input id="msgInput" autocomplete="off" placeholder="Type a message (Markdown supported)..." maxlength="2000" />
+            <div class="composer-actions">
+              <button type="button" id="open-stickers" class="btn muted" title="Open stickers">😊</button>
+              <button type="submit" class="btn send gold">Send</button>
+            </div>
           </form>
         </section>
+
+        <!-- Sticker picker -->
+        <aside id="stickerPanel" class="sticker-panel hidden" aria-hidden="true">
+          <div class="sticker-header">
+            <strong>Stickers</strong>
+            <button id="close-stickers" class="btn muted">Close</button>
+          </div>
+          <div id="stickers" class="stickers-grid">Loading…</div>
+        </aside>
+
       </div>
     </section>
 
     <!-- Modal (used for create, join, settings) -->
-    <div id="modal" class="modal hidden">
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
       <div class="modal-card">
-        <button id="modalClose" class="modal-close">✕</button>
+        <button id="modalClose" class="modal-close" aria-label="Close">✕</button>
 
         <div id="createForm" class="form hidden">
           <h2>Create Room</h2>
@@ -87,8 +107,16 @@
           <div class="setting">
             <label>Theme</label>
             <div class="segmented">
-              <button id="themeDark" class="seg-btn active">Dark</button>
-              <button id="themeLight" class="seg-btn">Light</button>
+              <button id="themeDark" class="seg-btn active" data-theme="default">Dark</button>
+              <button id="themeLight" class="seg-btn" data-theme="light">Light</button>
+              <!-- new themes will be controlled from main settings area -->
+            </div>
+            <div class="theme-chooser" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+              <button class="theme-swatch" data-theme-class="" title="Default">Default</button>
+              <button class="theme-swatch" data-theme-class="theme-forest" title="Forest">Forest</button>
+              <button class="theme-swatch" data-theme-class="theme-amethyst" title="Amethyst">Amethyst</button>
+              <button class="theme-swatch" data-theme-class="theme-ocean" title="Ocean">Ocean</button>
+              <button class="theme-swatch" data-theme-class="theme-kawaii" title="Kawaii">Kawaii</button>
             </div>
           </div>
 
@@ -108,8 +136,23 @@
       </div>
     </div>
 
-    <div id="toast" class="toast hidden"></div>
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   </main>
+
+  <!-- SVG icon definitions -->
+  <svg style="display:none" aria-hidden="true">
+    <symbol id="icon-pencil" viewBox="0 0 24 24">
+      <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+    </symbol>
+
+    <symbol id="icon-trash" viewBox="0 0 24 24">
+      <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+    </symbol>
+
+    <symbol id="icon-clock" viewBox="0 0 24 24">
+      <path d="M12 20a8 8 0 1 1 0-16a8 8 0 0 1 0 16zm.5-13h-1v6l5 3l.5-.86l-4.5-2.64V7z"/>
+    </symbol>
+  </svg>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/main.js"></script>
