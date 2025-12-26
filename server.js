@@ -58,6 +58,29 @@ function buildUserList(room) {
   return { users, ownerId: room.ownerId, ownerUsername };
 }
 
+function reassignOwnerIfNeeded(room) {
+  // If owner is missing or disconnected, pick a new owner if there are users
+  if (!room) return;
+  if (room.ownerId && room.users[room.ownerId]) return; // owner still present
+  const sids = Object.keys(room.users);
+  if (sids.length === 0) {
+    // No users; delete non-global rooms to free memory
+    if (!room.isGlobal) {
+      delete rooms[room.code];
+      console.log(`Room ${room.code} deleted because empty.`);
+    } else {
+      room.ownerId = null;
+    }
+    return;
+  }
+  // pick first user as new owner
+  room.ownerId = sids[0];
+  const newOwnerName = room.users[room.ownerId] ? room.users[room.ownerId].username : null;
+  io.to(room.code).emit('systemMessage', { text: `${newOwnerName || 'Someone'} is now the host.` });
+  const userList = buildUserList(room);
+  io.to(room.code).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+}
+
 io.on('connection', (socket) => {
   socket.data.currentRoom = null;
   socket.data.username = null;
@@ -84,7 +107,7 @@ io.on('connection', (socket) => {
         users: {},
         messages: [],
         isGlobal: false,
-        safe: safe === undefined ? true : !!safe
+        safe: safe === undefined ? true : !!safe,
       };
 
       // Add creator to room
@@ -190,6 +213,20 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Typing indicator (simple broadcast to room)
+  socket.on('typing', (payload) => {
+    try {
+      const roomKey = socket.data.currentRoom;
+      if (!roomKey) return;
+      const username = socket.data.username || 'Unknown';
+      const typing = !!(payload && payload.typing);
+      // Broadcast to others in room
+      socket.to(roomKey).emit('typing', { username, socketId: socket.id, typing });
+    } catch (err) {
+      // ignore
+    }
+  });
+
   // Host clear chat
   socket.on('clearRoom', (payload, cb) => {
     try {
@@ -253,20 +290,31 @@ io.on('connection', (socket) => {
     delete room.users[socket.id];
     socket.leave(roomKey);
     socket.data.currentRoom = null;
-    const userList = buildUserList(room);
-    io.to(roomKey).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+
+    // If the leaving user was the owner, reassign
+    if (room.ownerId === socket.id) {
+      reassignOwnerIfNeeded(room);
+    } else {
+      const userList = buildUserList(room);
+      io.to(roomKey).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+    }
   });
 
   socket.on('disconnect', () => {
-    // On disconnect, remove from room users list but do NOT delete room.
+    // On disconnect, remove from room users list but do NOT delete room (unless owner/empty)
     const roomKey = socket.data.currentRoom;
     if (roomKey) {
       const room = rooms[roomKey];
       if (room) {
         delete room.users[socket.id];
-        const userList = buildUserList(room);
-        io.to(roomKey).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
-        // Do not delete room on disconnect; delete only on client-refresh for safe rooms.
+        // If the disconnected user was the owner, reassign
+        if (room.ownerId === socket.id) {
+          reassignOwnerIfNeeded(room);
+        } else {
+          const userList = buildUserList(room);
+          io.to(roomKey).emit('userList', { users: userList.users, ownerId: userList.ownerId, ownerUsername: userList.ownerUsername });
+        }
+        // Do not delete room on disconnect; delete only on client-refresh for safe rooms or if empty handled in reassignOwnerIfNeeded
       }
     }
   });
