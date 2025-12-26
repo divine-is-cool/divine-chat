@@ -24,6 +24,9 @@
     <section id="pane" class="pane hidden">
       <div class="chat-header">
         <h2 id="chatTitle" class="chat-title">Private Chat</h2>
+        <div class="chat-meta-row">
+          <div id="safeIndicator" class="safe-indicator" title="Safe room: refresh will kick everyone">Safe: ON</div>
+        </div>
         <div class="chat-actions-row">
           <button id="btnClear" class="btn action gold" title="Host only — Ctrl+Alt+C">Clear Chat</button>
           <button id="btnLeave" class="btn action muted">Leave Room</button>
@@ -38,6 +41,7 @@
 
         <section class="chat">
           <div id="messages" class="messages"></div>
+          <div id="typing" class="typing small hidden"></div>
           <form id="msgForm" class="msgForm">
             <input id="msgInput" autocomplete="off" placeholder="Type a message..." maxlength="2000" />
             <button class="btn send gold">Send</button>
