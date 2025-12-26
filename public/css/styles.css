@@ -94,10 +94,22 @@ a{color:inherit}
   box-shadow: 0 10px 40px rgba(2,6,23,0.55);
 }
 
-/* Chat header with title and two buttons (evenly sized) */
-.chat-header{display:flex;flex-direction:column;gap:12px;padding:12px;border-bottom:1px solid rgba(255,255,255,0.02)}
-.chat-title{margin:0;font-size:1.25rem;color:var(--gold);font-weight:800}
-.chat-actions-row{display:flex;gap:12px}
+/* Chat header with centered title and safe indicator */
+.chat-header{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:8px;
+  padding:12px;
+  border-bottom:1px solid rgba(255,255,255,0.02);
+}
+.chat-title{margin:0;font-size:1.25rem;color:var(--gold);font-weight:800;text-align:center}
+.chat-meta-row{display:flex;gap:8px;align-items:center}
+.safe-indicator{
+  font-weight:700;padding:6px 10px;border-radius:999px;background:linear-gradient(90deg, rgba(212,175,55,0.06), rgba(107,43,122,0.03));color:var(--muted);font-size:0.9rem;
+  border:1px solid rgba(255,255,255,0.02);
+}
+.chat-actions-row{display:flex;gap:12px;width:100%;max-width:600px;margin-top:8px}
 .chat-actions-row .btn{flex:1;border-radius:10px}
 
 /* Layout grid */
@@ -122,6 +134,9 @@ a{color:inherit}
 .msg.host{border:1px solid rgba(212,175,55,0.2);box-shadow: 0 12px 36px rgba(212,175,55,0.04)}
 .msg.system{margin:0 auto;background:transparent;color:var(--muted);font-style:italic;text-align:center;padding:6px 10px;border-radius:8px;border:none;box-shadow:none}
 
+/* Typing indicator */
+.typing{padding:6px 10px;border-radius:8px;color:var(--muted);text-align:left}
+
 /* Message form */
 .msgForm{display:flex;gap:10px;margin-top:12px}
 .msgForm input{flex:1;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,0.03);background:rgba(0,0,0,0.42);color:var(--text);outline:none;transition:box-shadow var(--transition),border-color var(--transition)}
@@ -141,8 +156,9 @@ a{color:inherit}
 .seg-btn{padding:8px 12px;background:transparent;border:none;color:var(--muted);cursor:pointer}
 .seg-btn.active{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));color:var(--text);font-weight:700}
 
-/* Toast */
+/* Toast — add error variant */
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:10px 14px;border-radius:10px;color:var(--muted);border:1px solid rgba(255,255,255,0.02)}
+.toast.error{border-color:rgba(220,100,100,0.18);background:linear-gradient(180deg, rgba(220,100,100,0.06), rgba(220,100,100,0.03));color:#ffdede}
 
 /* Hidden helper */
 .hidden{display:none}
