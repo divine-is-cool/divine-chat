@@ -30,19 +30,11 @@
   const safeIndicator = document.getElementById('safeIndicator');
   const typingEl = document.getElementById('typing');
 
-  // Create inputs
-  const createUsername = document.getElementById('createUsername');
-  const createCode = document.getElementById('createCode');
-  const createPassword = document.getElementById('createPassword');
-  const createMax = document.getElementById('createMax');
-  const createSafe = document.getElementById('createSafe');
-
-  // Join inputs
-  const joinUsername = document.getElementById('joinUsername');
-  const joinCode = document.getElementById('joinCode');
-  const joinPassword = document.getElementById('joinPassword');
-
-  // Settings elements
+  const openStickersBtn = document.getElementById('open-stickers');
+  const stickerPanel = document.getElementById('stickerPanel');
+  const stickersGrid = document.getElementById('stickers');
+  const closeStickersBtn = document.getElementById('close-stickers');
+  const themeSwatches = document.querySelectorAll('.theme-swatch');
   const themeDark = document.getElementById('themeDark');
   const themeLight = document.getElementById('themeLight');
   const toggleShortcut = document.getElementById('toggleShortcut');
@@ -58,11 +50,14 @@
   const typingUsers = new Map(); // socketId -> username
 
   // Settings persisted
-  const SETTINGS_KEY = 'divine_chat_settings_v1';
-  const defaultSettings = { theme: 'dark', shortcutEnabled: true };
+  const SETTINGS_KEY = 'divine_chat_settings_v2';
+  const defaultSettings = { themeClass: '', theme: 'dark', shortcutEnabled: true };
   let settings = loadSettings();
 
   applySettingsToUI();
+
+  // Sticker manifest default path
+  const STICKER_MANIFEST = '/assets/stickers/index.json';
 
   function loadSettings() {
     try {
@@ -77,6 +72,11 @@
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }
   function applySettingsToUI() {
+    // theme class (forest, amethyst, ocean, kawaii)
+    document.body.classList.remove('theme-forest','theme-amethyst','theme-ocean','theme-kawaii');
+    if (settings.themeClass) document.body.classList.add(settings.themeClass);
+
+    // light vs dark (legacy)
     if (settings.theme === 'light') document.body.classList.add('light-mode');
     else document.body.classList.remove('light-mode');
 
@@ -129,6 +129,7 @@
   settingsClose.addEventListener('click', () => {
     // save settings
     settings.shortcutEnabled = !!toggleShortcut.checked;
+    // theme (legacy)
     settings.theme = themeLight.classList.contains('active') ? 'light' : 'dark';
     saveSettings();
     applySettingsToUI();
@@ -143,6 +144,29 @@
     themeLight.classList.add('active');
     themeDark.classList.remove('active');
   });
+
+  // theme swatches (forest, amethyst, ocean, kawaii)
+  themeSwatches.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cls = btn.getAttribute('data-theme-class') || '';
+      settings.themeClass = cls;
+      saveSettings();
+      applySettingsToUI();
+      showToast(`Theme: ${btn.title}`, 1200);
+    });
+  });
+
+  // Create inputs
+  const createUsername = document.getElementById('createUsername');
+  const createCode = document.getElementById('createCode');
+  const createPassword = document.getElementById('createPassword');
+  const createMax = document.getElementById('createMax');
+  const createSafe = document.getElementById('createSafe');
+
+  // Join inputs
+  const joinUsername = document.getElementById('joinUsername');
+  const joinCode = document.getElementById('joinCode');
+  const joinPassword = document.getElementById('joinPassword');
 
   createSubmit.addEventListener('click', () => {
     const username = createUsername.value.trim();
@@ -200,6 +224,9 @@
       btnClear.classList.remove('muted');
     }
     setTimeout(() => msgInput.focus(), 200);
+
+    // load stickers (when entering a room)
+    loadStickers();
   }
 
   function updateUserList(users, ownerIdParam, ownerUsernameParam) {
@@ -243,6 +270,25 @@
 
   socket.on('newMessage', (m) => {
     appendMessage(m);
+  });
+
+  // Listen for message edits & deletes (server-side support optional)
+  socket.on('messageEdited', (payload) => {
+    if (!payload || !payload.id) return;
+    const el = document.querySelector(`[data-mid="${payload.id}"]`);
+    if (el) updateMessageElement(el, payload);
+  });
+
+  socket.on('messageDeleted', (payload) => {
+    if (!payload || !payload.id) return;
+    const el = document.querySelector(`[data-mid="${payload.id}"]`);
+    if (el) {
+      // simple fade + replace with system note
+      const system = document.createElement('div');
+      system.className = 'msg system';
+      system.textContent = 'Message deleted';
+      el.replaceWith(system);
+    }
   });
 
   socket.on('roomCleared', (payload) => {
@@ -291,22 +337,135 @@
     });
   });
 
+  // Send sticker
+  function sendSticker(filename) {
+    if (!filename) return;
+    socket.emit('sendMessage', { text: filename, type: 'sticker' }, (res) => {
+      if (!res || !res.ok) {
+        showToast(res && res.message ? res.message : 'Failed to send sticker', 3000, 'error');
+      } else {
+        // sticker sent; sticker will arrive via newMessage event
+      }
+    });
+  }
+
+  // Append message to DOM (supports markdown and stickers)
   function appendMessage(m) {
     const div = document.createElement('div');
     div.className = 'msg';
+    const mid = getMessageId(m);
+    div.setAttribute('data-mid', mid);
+
     if (m.username === myUsername) div.classList.add('me');
     if (ownerName && m.username === ownerName) div.classList.add('host');
+
     const meta = document.createElement('div');
     meta.className = 'meta';
+
+    const metaLeft = document.createElement('div');
+    metaLeft.className = 'meta-left';
     const t = new Date(m.ts || Date.now());
-    meta.textContent = `${m.username} • ${t.toLocaleTimeString()}`;
+    const who = document.createElement('span');
+    who.className = 'meta-who';
+    who.textContent = m.username || 'Anon';
+    const when = document.createElement('span');
+    when.className = 'meta-time';
+    when.textContent = ` • ${t.toLocaleTimeString()}`;
+
+    metaLeft.appendChild(who);
+    metaLeft.appendChild(when);
+    meta.appendChild(metaLeft);
+
+    // controls only for messages authored by me
+    const controls = document.createElement('div');
+    controls.className = 'msg-controls';
+    if (m.username === myUsername) {
+      // edit allowed for 1 minute after ts
+      const ageSec = (Date.now() - (m.ts || Date.now())) / 1000;
+      if (ageSec <= 60) {
+        const btnEdit = document.createElement('button');
+        btnEdit.title = 'Edit message (1 minute window)';
+        btnEdit.innerHTML = '<svg width="16" height="16"><use href="#icon-pencil"></use></svg>';
+        btnEdit.addEventListener('click', () => beginEditMessage(div, m));
+        controls.appendChild(btnEdit);
+      } else {
+        // show clock icon to indicate edit window passed
+        const clock = document.createElement('span');
+        clock.style.opacity = '0.4';
+        clock.innerHTML = '<svg width="14" height="14"><use href="#icon-clock"></use></svg>';
+        controls.appendChild(clock);
+      }
+      const btnTrash = document.createElement('button');
+      btnTrash.title = 'Delete message';
+      btnTrash.innerHTML = '<svg width="16" height="16"><use href="#icon-trash"></use></svg>';
+      btnTrash.addEventListener('click', () => deleteMessage(m));
+      controls.appendChild(btnTrash);
+    }
+    meta.appendChild(controls);
+
     const body = document.createElement('div');
     body.className = 'body';
-    body.innerHTML = escapeHtml(m.text);
+
+    // Render based on type field (sticker) or text (markdown)
+    if (m.type && m.type === 'sticker') {
+      const img = document.createElement('img');
+      img.src = `/assets/stickers/${encodeURIComponent(String(m.text || ''))}`;
+      img.alt = 'sticker';
+      img.style.maxWidth = '200px';
+      img.style.borderRadius = '8px';
+      body.appendChild(img);
+    } else {
+      // sanitize rendered markdown
+      try {
+        const raw = marked.parse(m.text || '');
+        const clean = DOMPurify.sanitize(raw, { ALLOWED_TAGS: false });
+        body.innerHTML = clean;
+      } catch (err) {
+        body.innerHTML = escapeHtml(m.text || '');
+      }
+    }
+
     div.appendChild(meta);
     div.appendChild(body);
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function updateMessageElement(el, payload) {
+    // payload: { id, text, editedAt }
+    if (!el) return;
+    const body = el.querySelector('.body');
+    if (!body) return;
+    if (payload.type === 'sticker') {
+      body.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = `/assets/stickers/${encodeURIComponent(String(payload.text || ''))}`;
+      img.alt = 'sticker';
+      img.style.maxWidth = '200px';
+      img.style.borderRadius = '8px';
+      body.appendChild(img);
+    } else {
+      try {
+        const raw = marked.parse(payload.text || '');
+        body.innerHTML = DOMPurify.sanitize(raw);
+      } catch {
+        body.innerHTML = escapeHtml(payload.text || '');
+      }
+    }
+    // add edited marker if provided
+    const metaLeft = el.querySelector('.meta-left');
+    if (metaLeft && payload.editedAt) {
+      let edited = el.querySelector('.edited-mark');
+      if (!edited) {
+        edited = document.createElement('span');
+        edited.className = 'edited-mark';
+        edited.style.opacity = '0.7';
+        edited.style.fontSize = '0.8rem';
+        edited.style.marginLeft = '8px';
+        edited.textContent = '(edited)';
+        metaLeft.appendChild(edited);
+      }
+    }
   }
 
   function appendSystem(text) {
@@ -388,11 +547,168 @@
     }
   });
 
-  // Escape closes modal
+  // Escape closes modal & close sticker panel
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') {
+      closeModal();
+      closeStickers();
+    }
   });
 
   // Helper: when user clicks Global prompt or anywhere, server responses handle duplicates
+
+  // Utilities for message id fallback
+  function getMessageId(m) {
+    return m.id || m._id || m.mid || (`m_${(m.ts || Date.now())}_${(m.username || 'u').replace(/\s+/g,'')}`);
+  }
+
+  // Begin editing a message (client-side + emit edit)
+  function beginEditMessage(msgEl, message) {
+    // prevent multiple editors
+    if (msgEl.querySelector('.msg-edit-area')) return;
+    const body = msgEl.querySelector('.body');
+    const originalHtml = message.text || (body ? body.textContent : '');
+    const editArea = document.createElement('div');
+    editArea.className = 'msg-edit-area';
+    const ta = document.createElement('textarea');
+    ta.value = message.text || '';
+    const actions = document.createElement('div');
+    actions.className = 'msg-edit-actions';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn gold';
+    saveBtn.textContent = 'Save';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn muted';
+    cancelBtn.textContent = 'Cancel';
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(saveBtn);
+    editArea.appendChild(ta);
+    editArea.appendChild(actions);
+
+    // replace body with editor
+    body.style.display = 'none';
+    body.parentNode.insertBefore(editArea, body.nextSibling);
+
+    cancelBtn.addEventListener('click', () => {
+      editArea.remove();
+      body.style.display = '';
+    });
+
+    saveBtn.addEventListener('click', () => {
+      const newText = ta.value.trim();
+      if (newText === (message.text || '')) {
+        // no change
+        editArea.remove();
+        body.style.display = '';
+        return;
+      }
+      // optimistic UI update
+      try {
+        const raw = marked.parse(newText);
+        body.innerHTML = DOMPurify.sanitize(raw);
+      } catch {
+        body.innerHTML = escapeHtml(newText);
+      }
+      editArea.remove();
+      body.style.display = '';
+
+      const id = getMessageId(message);
+      // emit edit event (server must support it) otherwise nothing persisted
+      socket.emit('editMessage', { id, text: newText }, (res) => {
+        if (!res || !res.ok) {
+          showToast(res && res.message ? res.message : 'Failed to edit', 3000, 'error');
+          // ideally revert to original
+          body.innerHTML = originalHtml;
+        } else {
+          // server accepted; server should emit messageEdited which will also update other clients
+        }
+      });
+    });
+  }
+
+  // Delete message (emit)
+  function deleteMessage(message) {
+    const id = getMessageId(message);
+    if (!confirm('Delete this message?')) return;
+    socket.emit('deleteMessage', { id }, (res) => {
+      if (!res || !res.ok) {
+        showToast(res && res.message ? res.message : 'Failed to delete', 3000, 'error');
+      } else {
+        // optimistic remove: replace element with system note
+        const el = document.querySelector(`[data-mid="${id}"]`);
+        if (el) {
+          const system = document.createElement('div');
+          system.className = 'msg system';
+          system.textContent = 'Message deleted';
+          el.replaceWith(system);
+        }
+      }
+    });
+  }
+
+  // STICKERS loading and UI
+  async function loadStickers() {
+    try {
+      const res = await fetch(STICKER_MANIFEST, { cache: 'no-cache' });
+      if (!res.ok) throw new Error('No stickers');
+      const list = await res.json();
+      renderStickers(list);
+    } catch (err) {
+      // render nothing or keep existing
+      stickersGrid.innerHTML = '<div style="opacity:.6">No stickers found</div>';
+    }
+  }
+
+  function renderStickers(list) {
+    stickersGrid.innerHTML = '';
+    if (!Array.isArray(list) || list.length === 0) {
+      stickersGrid.innerHTML = '<div style="opacity:.6">No stickers</div>';
+      return;
+    }
+    list.forEach(fname => {
+      const img = document.createElement('img');
+      img.src = `/assets/stickers/${encodeURIComponent(fname)}`;
+      img.alt = fname;
+      img.title = fname;
+      img.addEventListener('click', () => {
+        sendSticker(fname);
+        closeStickers();
+      });
+      stickersGrid.appendChild(img);
+    });
+  }
+
+  function openStickers() {
+    stickerPanel.classList.remove('hidden');
+    stickerPanel.setAttribute('aria-hidden', 'false');
+    loadStickers();
+  }
+  function closeStickers() {
+    stickerPanel.classList.add('hidden');
+    stickerPanel.setAttribute('aria-hidden', 'true');
+  }
+
+  openStickersBtn.addEventListener('click', (e) => {
+    if (stickerPanel.classList.contains('hidden')) openStickers();
+    else closeStickers();
+  });
+  closeStickersBtn && closeStickersBtn.addEventListener('click', closeStickers);
+
+  // Handle server-side edits/deletes arriving through events (already wired above)
+  // If server doesn't support, the optimistic UI still gives UX.
+
+  // Shortcut handlers and escape already wired
+
+  // Helper: when user clicks Global prompt or anywhere, server responses handle duplicates
+
+  // initial load: try to fetch stickers manifest so the panel is ready
+  // but only if pane visible later we load again
+  (async () => {
+    try {
+      const res = await fetch(STICKER_MANIFEST, { method: 'HEAD' });
+      // do nothing â€” presence checked later
+    } catch {}
+  })();
 
 })();
