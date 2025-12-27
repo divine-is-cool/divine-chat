@@ -34,7 +34,8 @@
   const stickerPanel = document.getElementById('stickerPanel');
   const stickersGrid = document.getElementById('stickers');
   const closeStickersBtn = document.getElementById('close-stickers');
-  const themeSwatches = document.querySelectorAll('.theme-swatch');
+  // Theme options now are larger boxes with data-theme attribute
+  const themeOptions = document.querySelectorAll('.theme-option');
   const themeDark = document.getElementById('themeDark');
   const themeLight = document.getElementById('themeLight');
   const toggleShortcut = document.getElementById('toggleShortcut');
@@ -54,10 +55,22 @@
   const defaultSettings = { themeClass: '', theme: 'dark', shortcutEnabled: true };
   let settings = loadSettings();
 
+  // Ban settings / rules: adjust here to add words, warnings, duration (hours)
+  // Example: 'fart' gives 2 warnings then 72 hours ban
+  const BANNED_WORDS = [
+    { word: 'fart', warnings: 2, durationHours: 72 } // easy to add more entries here
+  ];
+
   applySettingsToUI();
 
   // Sticker manifest default path
   const STICKER_MANIFEST = '/assets/stickers/index.json';
+
+  // check immediate ban on load
+  if (getCookie('divine_ban')) {
+    // redirect to ban page
+    window.location.href = '/ban.html';
+  }
 
   function loadSettings() {
     try {
@@ -82,12 +95,23 @@
 
     toggleShortcut.checked = !!settings.shortcutEnabled;
     if (settings.theme === 'light') {
-      themeDark.classList.remove('active');
-      themeLight.classList.add('active');
+      themeDark && themeDark.classList.remove('active');
+      themeLight && themeLight.classList.add('active');
     } else {
-      themeDark.classList.add('active');
-      themeLight.classList.remove('active');
+      themeDark && themeDark.classList.add('active');
+      themeLight && themeLight.classList.remove('active');
     }
+
+    // mark active among modern theme options
+    themeOptions.forEach(opt => {
+      const cls = opt.getAttribute('data-theme-class') || '';
+      const themeKey = opt.getAttribute('data-theme') || '';
+      if (settings.themeClass === cls || settings.theme === themeKey) {
+        opt.classList.add('active');
+      } else {
+        opt.classList.remove('active');
+      }
+    });
   }
 
   function showToast(msg, duration = 2500, type = 'info') {
@@ -113,7 +137,12 @@
 
   btnCreate.addEventListener('click', () => showModal('create'));
   btnJoin.addEventListener('click', () => showModal('join'));
-  btnSettings.addEventListener('click', () => showModal('settings'));
+  btnSettings.addEventListener('click', () => {
+    // re-apply UI before showing
+    settings = loadSettings();
+    applySettingsToUI();
+    showModal('settings');
+  });
   btnGlobal.addEventListener('click', () => {
     const name = prompt('Enter a username for Global Chat:', 'Guest');
     if (!name) return;
@@ -130,29 +159,34 @@
     // save settings
     settings.shortcutEnabled = !!toggleShortcut.checked;
     // theme (legacy)
-    settings.theme = themeLight.classList.contains('active') ? 'light' : 'dark';
+    settings.theme = themeLight && themeLight.classList.contains('active') ? 'light' : 'dark';
     saveSettings();
     applySettingsToUI();
     closeModal();
   });
 
-  themeDark.addEventListener('click', () => {
+  themeDark && themeDark.addEventListener('click', () => {
     themeDark.classList.add('active');
-    themeLight.classList.remove('active');
+    themeLight && themeLight.classList.remove('active');
+    settings.theme = 'dark';
   });
-  themeLight.addEventListener('click', () => {
+  themeLight && themeLight.addEventListener('click', () => {
     themeLight.classList.add('active');
-    themeDark.classList.remove('active');
+    themeDark && themeDark.classList.remove('active');
+    settings.theme = 'light';
   });
 
-  // theme swatches (forest, amethyst, ocean, kawaii)
-  themeSwatches.forEach(btn => {
+  // theme options (modern large boxes)
+  themeOptions.forEach(btn => {
     btn.addEventListener('click', () => {
       const cls = btn.getAttribute('data-theme-class') || '';
+      const theme = btn.getAttribute('data-theme') || '';
+      // update settings: prefer themeClass for custom themes; for default/dark/light, use theme key
       settings.themeClass = cls;
+      if (theme) settings.theme = theme;
       saveSettings();
       applySettingsToUI();
-      showToast(`Theme: ${btn.title}`, 1200);
+      showToast(`Theme: ${btn.title || theme || 'Custom'}`, 1200);
     });
   });
 
@@ -323,10 +357,80 @@
     else typingEl.textContent = `${names.join(', ')} are typing...`;
   }
 
+  // Ban & warnings utilities
+  function getWarnKey(username, word) {
+    return `divine_warn_${(username || 'anon')}_${word}`;
+  }
+  function incrementWarning(username, word) {
+    const key = getWarnKey(username, word);
+    const raw = localStorage.getItem(key);
+    const cur = raw ? parseInt(raw, 10) || 0 : 0;
+    const next = cur + 1;
+    localStorage.setItem(key, String(next));
+    return next;
+  }
+  function resetWarnings(username, word) {
+    const key = getWarnKey(username, word);
+    localStorage.removeItem(key);
+  }
+  function setCookie(name, value, hours) {
+    const d = new Date();
+    d.setTime(d.getTime() + (hours * 60 * 60 * 1000));
+    const expires = "expires="+ d.toUTCString();
+    document.cookie = name + "=" + encodeURIComponent(value) + ";" + expires + ";path=/";
+  }
+  function getCookie(name) {
+    const v = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return v ? decodeURIComponent(v.pop()) : null;
+  }
+  function removeCookie(name) {
+    document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+  }
+
+  // Check message text for banned words. If detected: warn, popup and block send.
+  // If warnings exceed threshold: set ban cookie (durationHours) and redirect to /ban.html
+  function checkBannedTextBeforeSend(text) {
+    if (!text) return true;
+    const lowered = String(text).toLowerCase();
+    for (const rule of BANNED_WORDS) {
+      const needle = String(rule.word).toLowerCase();
+      // simple substring match - you can change to regex if you like
+      if (lowered.includes(needle)) {
+        const warningsSoFar = incrementWarning(myUsername, needle);
+        if (warningsSoFar >= (rule.warnings || 1)) {
+          // set ban cookie and redirect
+          const hours = rule.durationHours || 72;
+          const until = Date.now() + hours * 60 * 60 * 1000;
+          const payload = { word: needle, until, hours, by: myUsername || 'unknown' };
+          setCookie('divine_ban', JSON.stringify(payload), hours);
+          // show alert just before redirect so user is aware
+          alert('You have been banned for using disallowed words.');
+          window.location.href = '/ban.html';
+          return false;
+        } else {
+          // show popup warning (requires click OK)
+          alert('Message failed to send. Use kind words.');
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  // msgForm submit now checks for banned words before emitting
   msgForm.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const text = msgInput.value.trim();
     if (!text) return;
+    // verify ban cookie again before send
+    if (getCookie('divine_ban')) {
+      window.location.href = '/ban.html';
+      return;
+    }
+    if (!checkBannedTextBeforeSend(text)) {
+      // blocked by ban/ warning
+      return;
+    }
     socket.emit('sendMessage', { text }, (res) => {
       if (!res || !res.ok) {
         showToast(res && res.message ? res.message : 'Failed to send', 3000, 'error');
@@ -337,9 +441,14 @@
     });
   });
 
-  // Send sticker
+  // Send sticker (also check banned words in filename)
   function sendSticker(filename) {
     if (!filename) return;
+    if (getCookie('divine_ban')) {
+      window.location.href = '/ban.html';
+      return;
+    }
+    if (!checkBannedTextBeforeSend(filename)) return;
     socket.emit('sendMessage', { text: filename, type: 'sticker' }, (res) => {
       if (!res || !res.ok) {
         showToast(res && res.message ? res.message : 'Failed to send sticker', 3000, 'error');
@@ -527,7 +636,7 @@
     }
   }
 
-  // Handle beforeunload — for safe rooms, emit client-refresh so server may delete the room.
+  // Handle beforeunload â€” for safe rooms, emit client-refresh so server may delete the room.
   window.addEventListener('beforeunload', (e) => {
     try {
       if (currentRoom && currentRoom !== 'GLOBAL_CHAT_DIVINE') {
@@ -539,7 +648,7 @@
     }
   });
 
-  // Shortcut Ctrl+Alt+C to clear (host) — respects user setting
+  // Shortcut Ctrl+Alt+C to clear (host) â€” respects user setting
   window.addEventListener('keydown', (e) => {
     if (!settings.shortcutEnabled) return;
     if (e.ctrlKey && e.altKey && (e.key === 'c' || e.key === 'C')) {
@@ -554,8 +663,6 @@
       closeStickers();
     }
   });
-
-  // Helper: when user clicks Global prompt or anywhere, server responses handle duplicates
 
   // Utilities for message id fallback
   function getMessageId(m) {
@@ -603,6 +710,15 @@
         body.style.display = '';
         return;
       }
+
+      // check banned words before allowing edit
+      if (!checkBannedTextBeforeSend(newText)) {
+        // blocked
+        editArea.remove();
+        body.style.display = '';
+        return;
+      }
+
       // optimistic UI update
       try {
         const raw = marked.parse(newText);
@@ -694,13 +810,6 @@
     else closeStickers();
   });
   closeStickersBtn && closeStickersBtn.addEventListener('click', closeStickers);
-
-  // Handle server-side edits/deletes arriving through events (already wired above)
-  // If server doesn't support, the optimistic UI still gives UX.
-
-  // Shortcut handlers and escape already wired
-
-  // Helper: when user clicks Global prompt or anywhere, server responses handle duplicates
 
   // initial load: try to fetch stickers manifest so the panel is ready
   // but only if pane visible later we load again
