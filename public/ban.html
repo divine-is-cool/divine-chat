@@ -23,11 +23,7 @@
 
       <div id="banInfo" style="font-weight:700"></div>
       <div id="banReason" class="ban-reason"></div>
-
-      <div class="ban-cta">
-        <button id="btnBack" class="btn muted">Back to Home</button>
-        <button id="btnClearBan" class="btn gold">Clear Ban (Dev only)</button>
-      </div>
+      
     </section>
   </main>
 
@@ -83,16 +79,6 @@
     } else {
       infoEl.textContent = 'You are banned.';
     }
-
-    document.getElementById('btnBack').addEventListener('click', () => {
-      // back to index - if cookie present client will redirect back; user can remove cookie via devtools
-      window.location.href = '/';
-    });
-    document.getElementById('btnClearBan').addEventListener('click', () => {
-      // dev helper to clear ban cookie (for testing)
-      removeCookie('divine_ban');
-      alert('Ban cookie cleared (dev).');
-      window.location.href = '/';
     });
   </script>
 </body>
