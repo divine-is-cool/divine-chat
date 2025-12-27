@@ -58,7 +58,16 @@
   // Ban settings / rules: adjust here to add words, warnings, duration (hours)
   // Example: 'fart' gives 2 warnings then 72 hours ban
   const BANNED_WORDS = [
-    { word: 'fart', warnings: 2, durationHours: 72 } // easy to add more entries here
+    { word: 'fuck', warnings: 2, durationHours: 24 }, // easy to add more entries here
+    { word: 'shit', warnings: 2, durationHours: 6 },
+    { word: 'ass', warnings: 3, durationHours: 6 },
+    { word: 'dick', warnings: 2, durationHours: 8 },
+    { word: 'nig', warnings: 1, durationHours: 720 },
+    { word: 'bitch', warnings: 2, durationHours: 12 },
+    { word: 'cock', warnings: 2, durationHours: 8 },
+    { word: 'retard', warnings: 1, durationHours: 168 },
+    { word: 'idiot', warnings: 5, durationHours: 1 },
+    { word: 'cum', warnings: 3, durationHours: 6 }
   ];
 
   applySettingsToUI();
