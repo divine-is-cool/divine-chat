@@ -60,14 +60,15 @@
   const BANNED_WORDS = [
     { word: 'fuck', warnings: 2, durationHours: 24 }, // easy to add more entries here
     { word: 'shit', warnings: 2, durationHours: 6 },
-    { word: 'ass', warnings: 3, durationHours: 6 },
     { word: 'dick', warnings: 2, durationHours: 8 },
     { word: 'nig', warnings: 1, durationHours: 720 },
     { word: 'bitch', warnings: 2, durationHours: 12 },
     { word: 'cock', warnings: 2, durationHours: 8 },
     { word: 'retard', warnings: 1, durationHours: 168 },
     { word: 'idiot', warnings: 5, durationHours: 1 },
-    { word: 'cum', warnings: 3, durationHours: 6 }
+    { word: 'cum', warnings: 3, durationHours: 6 },
+    { word: 'cunt', warnings: 2, durationHours: 24 },
+    { word: 'dumbass', warnings: 3, durationHours: 6 }
   ];
 
   applySettingsToUI();
