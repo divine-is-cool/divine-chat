@@ -537,7 +537,7 @@
       // sanitize rendered markdown
       try {
         const raw = marked.parse(m.text || '');
-        const clean = DOMPurify.sanitize(raw, { ALLOWED_TAGS: false });
+        const clean = DOMPurify.sanitize(raw);
         body.innerHTML = clean;
       } catch (err) {
         body.innerHTML = escapeHtml(m.text || '');
